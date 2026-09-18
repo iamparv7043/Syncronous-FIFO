@@ -1,76 +1,52 @@
-# FIFO Memory Design using Verilog
+# Synchronous FIFO (32 × 8)
 
-## Description
-This project implements a **First-In-First-Out (FIFO) memory buffer using Verilog HDL**. FIFO is a commonly used digital design structure that stores data in the order it is received and outputs it in the same order.
+A simple synchronous First-In-First-Out (FIFO) buffer written in Verilog, plus an interactive browser-based simulator to visualize how it behaves cycle by cycle.
 
-The design allows data to be written into the FIFO using a **write signal (`wr`)** and read using a **read signal (`rd`)**. It also provides **status flags (`full` and `empty`)** to indicate whether the buffer can accept new data or provide stored data.
+**🔴 Live simulator:** https://iamparv7043.github.io/Syncronous-FIFO/
 
-The FIFO size and data width are configurable using parameters.
+## Overview
 
----
+This is a 32-deep, 8-bit-wide FIFO with a single clock domain (read and write share the same clock). It supports:
 
-## Module Interface
+- Write-only, read-only, and simultaneous read+write in the same cycle
+- Full/empty detection using an extra pointer bit (no wasted memory slot needed)
+- Synchronous reset
 
-| Signal | Type | Description |
-|------|------|-------------|
-| `clk` | Input | System clock used to synchronize read and write operations |
-| `rst` | Input | Reset signal used to initialize the FIFO |
-| `wr` | Input | Write enable signal used to store data into the FIFO |
-| `rd` | Input | Read enable signal used to read data from the FIFO |
-| `din[DATA_WIDTH-1:0]` | Input | Input data to be written into the FIFO |
-| `dout[DATA_WIDTH-1:0]` | Output | Data output from the FIFO |
-| `empty` | Output | Indicates that the FIFO is empty |
-| `full` | Output | Indicates that the FIFO is full |
+## Design details
 
----
+- `wrptr` / `rdptr` are 6-bit registers addressing a 32-word memory (`mem[4:0]`)
+- The extra bit (`[5]`) acts as a "lap" indicator, so the same 5-bit address can mean either **empty** or **full** depending on whether the write pointer has lapped the read pointer:
+  - `empty` → `rdptr == wrptr` (same lap, same address)
+  - `full` → `rdptr == {~wrptr[5], wrptr[4:0]}` (write pointer is exactly one lap ahead)
+- On simultaneous read+write, both pointers advance together so occupancy never changes — this is why it's safe to allow read+write even while full.
 
-## Parameters
+## Files
 
-| Parameter | Description |
-|----------|-------------|
-| `DATA_WIDTH` | Defines the number of bits in each data word |
-| `DEPTH` | Defines the number of storage locations in the FIFO |
+| File | Description |
+|---|---|
+| `fifo.v` | The Verilog FIFO module |
+| `index.html` | Interactive simulator (memory array, pointers, flags, waveform log) |
 
----
+## Using the simulator
 
-## Working Principle
+Open `index.html` (or the live link above) in any browser:
 
-The FIFO operates based on **two pointers:**
+1. Enter a hex byte in the `din` field
+2. Click **write**, **read**, or **write + read** to step one clock edge at a time
+3. Watch the memory array update — WR/RD badges show pointer positions, and the waveform log shows exactly what each edge did
+4. **rst** clears all pointers and memory
 
-- **Write Pointer (wr_ptr)** → Points to the next location where data will be written.
-- **Read Pointer (rd_ptr)** → Points to the next location from which data will be read.
+## Module ports
 
-### Write Operation
-1. When the `wr` signal is HIGH and FIFO is not full, the input data `din` is stored in the memory.
-2. The **write pointer increments** to the next location.
+```verilog
+module fifo(
+    input clk, rst, rd, wr,
+    input [7:0] din,
+    output reg [7:0] dout,
+    output full, empty
+);
+```
 
-### Read Operation
-1. When the `rd` signal is HIGH and FIFO is not empty, the stored data is output through `dout`.
-2. The **read pointer increments** to the next location.
+## License
 
-### Status Flags
-- **Empty Flag**
-  - Indicates the FIFO contains no data.
-  - Occurs when read and write pointers are equal.
-
-- **Full Flag**
-  - Indicates the FIFO cannot accept more data.
-  - Occurs when the write pointer reaches the maximum storage capacity.
-
----
-
-## Features
-- Parameterized FIFO design
-- Configurable **data width**
-- Configurable **FIFO depth**
-- Supports **simultaneous read and write operations**
-- Includes **full and empty status flags**
-
----
-
-## Applications
-- Data buffering
-- Communication interfaces
-- Streaming data systems
-- Processor and peripheral communication
-- FPGA and ASIC digital systems
+MIT
