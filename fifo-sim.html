@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>32×8 FIFO — Interactive Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0C1712;
+    --panel: #13201A;
+    --panel-2: #182A20;
+    --line: #24392C;
+    --ink: #E9E6DC;
+    --ink-dim: #8FA093;
+    --gold: #C9A227;
+    --blue: #5FA8D3;
+    --amber: #D96C4A;
+    --occupied: #234A32;
+    --occupied-edge: #3F7D58;
+    --slot-empty: #182A20;
+    --focus: #C9A227;
+  }
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #EDE7D6;
+      --panel: #F6F1E3;
+      --panel-2: #EFE8D5;
+      --line: #D3C7A6;
+      --ink: #22301F;
+      --ink-dim: #5B6B52;
+      --gold: #96731A;
+      --blue: #2E6E93;
+      --amber: #B04E2E;
+      --occupied: #DCEBDF;
+      --occupied-edge: #4C8A63;
+      --slot-empty: #E5DCC1;
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #EDE7D6;
+    --panel: #F6F1E3;
+    --panel-2: #EFE8D5;
+    --line: #D3C7A6;
+    --ink: #22301F;
+    --ink-dim: #5B6B52;
+    --gold: #96731A;
+    --blue: #2E6E93;
+    --amber: #B04E2E;
+    --occupied: #DCEBDF;
+    --occupied-edge: #4C8A63;
+    --slot-empty: #E5DCC1;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    min-height: 100%;
+  }
+  body { padding: 28px 20px 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { margin-bottom: 22px; }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--gold);
+    margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-dim); font-size: 14.5px; max-width: 66ch; line-height: 1.5; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+
+  /* ---- memory array ---- */
+  .mem-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 640px) {
+    .mem-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .cell {
+    position: relative;
+    background: var(--slot-empty);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 6px 8px;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    min-height: 74px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cell.filled { background: var(--occupied); border-color: var(--occupied-edge); }
+  .cell.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .cell .addr {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    color: var(--ink-dim);
+    text-align: left;
+  }
+  .cell .val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .cell .val.empty-txt { color: var(--ink-dim); font-weight: 400; font-size: 12px; }
+  .cell .badges {
+    display: flex; gap: 3px; justify-content: center; min-height: 14px;
+  }
+  .badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 4px;
+    line-height: 1.4;
+  }
+  .badge.wr { background: var(--gold); color: #1a1400; }
+  .badge.rd { background: var(--blue); color: #06131c; }
+
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-top: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--ink-dim);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* ---- two-col: state + controls ---- */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+
+  .row-line {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+    padding: 7px 0; border-bottom: 1px dashed var(--line);
+  }
+  .row-line:last-child { border-bottom: none; }
+  .row-line .k { color: var(--ink-dim); }
+  .row-line .v { font-weight: 600; }
+
+  .flags { display: flex; gap: 10px; margin-top: 4px; }
+  .flag {
+    flex: 1; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; text-align: center; font-family: 'IBM Plex Mono', monospace;
+    background: var(--panel-2);
+  }
+  .flag .name { font-size: 10px; color: var(--ink-dim); }
+  .flag .val { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .flag.active-full .val { color: var(--amber); }
+  .flag.active-empty .val { color: var(--blue); }
+
+  .din-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  input[type="text"] {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 7px; color: var(--ink); font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px; padding: 9px 11px; min-width: 0;
+  }
+  input[type="text"]:focus-visible, button:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 1px;
+  }
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button {
+    font-family: 'Inter', sans-serif; font-size: 13.5px; font-weight: 600;
+    border-radius: 7px; border: 1px solid var(--line); padding: 10px 12px;
+    cursor: pointer; background: var(--panel-2); color: var(--ink);
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+  button:hover:not(:disabled) { background: var(--line); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.write { border-color: var(--gold); color: var(--gold); }
+  button.read { border-color: var(--blue); color: var(--blue); }
+  button.both { grid-column: span 2; }
+  button.reset { border-color: var(--amber); color: var(--amber); }
+
+  .helptext { font-size: 12px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
+
+  .log-body {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.7;
+    max-height: 220px; overflow-y: auto;
+  }
+  .log-body div { white-space: pre-wrap; word-break: break-word; }
+  .log-body .cyc { color: var(--ink-dim); }
+  .log-body .wr { color: var(--gold); }
+  .log-body .rd { color: var(--blue); }
+  .log-body .rst { color: var(--amber); }
+  .log-body .stall { color: var(--ink-dim); font-style: italic; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">module fifo — 32 × 8-bit, synchronous</div>
+    <h1>FIFO simulator</h1>
+    <div class="sub">32 addressed slots, laid out the way they sit in memory. Gold and blue badges mark where wrptr and rdptr currently point. Click any cell to see its address and contents.</div>
+  </header>
+
+  <div class="panel">
+    <h2>memory array — address : data</h2>
+    <div class="mem-grid" id="memGrid"></div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--slot-empty); border:1px solid var(--line);"></span>empty</span>
+      <span><span class="dot" style="background:var(--occupied); border:1px solid var(--occupied-edge);"></span>occupied</span>
+      <span><span class="badge wr" style="padding:1px 5px;">WR</span>write pointer</span>
+      <span><span class="badge rd" style="padding:1px 5px;">RD</span>read pointer</span>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h2>register state</h2>
+      <div class="row-line"><span class="k">clock cycle</span><span class="v" id="cycleVal">0</span></div>
+      <div class="row-line"><span class="k">wrptr [5:0]</span><span class="v" id="wrptrVal">000000</span></div>
+      <div class="row-line"><span class="k">rdptr [5:0]</span><span class="v" id="rdptrVal">000000</span></div>
+      <div class="row-line"><span class="k">occupancy</span><span class="v" id="occVal">0 / 32</span></div>
+      <div class="row-line"><span class="k">selected cell</span><span class="v" id="selVal">—</span></div>
+      <div class="flags">
+        <div class="flag" id="flagEmpty"><div class="name">empty</div><div class="val" id="emptyVal">1</div></div>
+        <div class="flag" id="flagFull"><div class="name">full</div><div class="val" id="fullVal">0</div></div>
+        <div class="flag"><div class="name">dout</div><div class="val" id="doutVal">00</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>next clock edge</h2>
+      <div class="din-row">
+        <input type="text" id="dinInput" value="A5" maxlength="2" aria-label="din, hex byte">
+        <button class="reset" id="resetBtn">rst</button>
+      </div>
+      <div class="btn-grid">
+        <button class="write" id="writeBtn">write (wr)</button>
+        <button class="read" id="readBtn">read (rd)</button>
+        <button class="both" id="bothBtn">write + read (wr &amp; rd)</button>
+      </div>
+      <div class="helptext">din is a 2-digit hex byte (00–FF). Write is ignored while full; read is ignored while empty, exactly as the RTL guards each case branch.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>waveform log</h2>
+    <div class="log-body" id="logBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const DEPTH = 32;
+  const mem = new Array(DEPTH).fill(null);
+  let rdptr = 0, wrptr = 0, dout = 0, cycle = 0, selected = null;
+
+  const el = id => document.getElementById(id);
+  const dinInput = el('dinInput');
+  const logBody = el('logBody');
+  const memGrid = el('memGrid');
+
+  function pos(p){ return p & 31; }
+  function full(){ return rdptr === ((~wrptr & 32) | (wrptr & 31)); }
+  function empty(){ return rdptr === wrptr; }
+  function occupancy(){
+    let c = 0;
+    for (let i=0;i<DEPTH;i++) if (mem[i] !== null) c++;
+    return c;
+  }
+  function hex2(n){ return n.toString(16).toUpperCase().padStart(2,'0'); }
+  function bin6(n){ return (n & 63).toString(2).padStart(6,'0'); }
+
+  function parseDin(){
+    let v = parseInt(dinInput.value, 16);
+    if (isNaN(v)) v = 0;
+    v = Math.max(0, Math.min(255, v));
+    dinInput.value = hex2(v);
+    return v;
+  }
+
+  function log(html, cls){
+    const line = document.createElement('div');
+    line.innerHTML = '<span class="cyc">#' + cycle + '</span>  ' + html;
+    if (cls) line.classList.add(cls);
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  function doReset(){
+    rdptr = 0; wrptr = 0; dout = 0;
+    for (let i=0;i<DEPTH;i++) mem[i] = null;
+    cycle++;
+    log('<span class="rst">rst=1</span> — dout, rdptr, wrptr cleared', 'rst');
+    render();
+  }
+
+  function doWrite(){
+    const din = parseDin();
+    cycle++;
+    if (!full()){
+      mem[pos(wrptr)] = din;
+      log('<span class="wr">WR</span>  mem[' + pos(wrptr) + '] &lt;= 0x' + hex2(din) + '   wrptr ' + bin6(wrptr) + ' → ' + bin6(wrptr+1));
+      wrptr = (wrptr + 1) & 63;
+    } else {
+      log('<span class="stall">WR ignored — full</span>');
+    }
+    render();
+  }
+
+  function doRead(){
+    cycle++;
+    if (!empty()){
+      dout = mem[pos(rdptr)];
+      log('<span class="rd">RD</span>  dout &lt;= mem[' + pos(rdptr) + '] = 0x' + hex2(dout) + '   rdptr ' + bin6(rdptr) + ' → ' + bin6(rdptr+1));
+      rdptr = (rdptr + 1) & 63;
+    } else {
+      log('<span class="stall">RD ignored — empty</span>');
+    }
+    render();
+  }
+
+  function doBoth(){
+    const din = parseDin();
+    cycle++;
+    if (empty()){
+      dout = din;
+      log('<span class="wr">WR</span>+<span class="rd">RD</span>  fifo empty → bypass, dout &lt;= 0x' + hex2(din) + ' (no state change)');
+    } else {
+      mem[pos(wrptr)] = din;
+      dout = mem[pos(rdptr)];
+      log('<span class="wr">WR</span>+<span class="rd">RD</span>  mem[' + pos(wrptr) + '] &lt;= 0x' + hex2(din) + ', dout &lt;= mem[' + pos(rdptr) + ']=0x' + hex2(dout) + '   wrptr→' + bin6(wrptr+1) + ' rdptr→' + bin6(rdptr+1));
+      wrptr = (wrptr + 1) & 63;
+      rdptr = (rdptr + 1) & 63;
+    }
+    render();
+  }
+
+  function buildGrid(){
+    memGrid.innerHTML = '';
+    for (let i=0;i<DEPTH;i++){
+      const c = document.createElement('div');
+      c.className = 'cell';
+      c.id = 'cell-' + i;
+      c.innerHTML =
+        '<div class="badges" id="badges-' + i + '"></div>' +
+        '<div class="val empty-txt" id="val-' + i + '">—</div>' +
+        '<div class="addr">' + i.toString().padStart(2,'0') + '</div>';
+      c.addEventListener('click', () => { selected = i; render(); });
+      memGrid.appendChild(c);
+    }
+  }
+
+  function render(){
+    for (let i=0;i<DEPTH;i++){
+      const cellEl = el('cell-' + i);
+      const valEl = el('val-' + i);
+      const badgesEl = el('badges-' + i);
+      const filled = mem[i] !== null;
+
+      cellEl.className = 'cell' + (filled ? ' filled' : '') + (i === selected ? ' sel' : '');
+      valEl.textContent = filled ? '0x' + hex2(mem[i]) : '—';
+      valEl.className = 'val' + (filled ? '' : ' empty-txt');
+
+      let badges = '';
+      if (pos(wrptr) === i) badges += '<span class="badge wr">WR</span>';
+      if (pos(rdptr) === i) badges += '<span class="badge rd">RD</span>';
+      badgesEl.innerHTML = badges;
+    }
+
+    el('cycleVal').textContent = cycle;
+    el('wrptrVal').textContent = bin6(wrptr) + '  (' + pos(wrptr) + ')';
+    el('rdptrVal').textContent = bin6(rdptr) + '  (' + pos(rdptr) + ')';
+    el('occVal').textContent = occupancy() + ' / 32';
+    el('doutVal').textContent = hex2(dout);
+
+    const isFull = full(), isEmpty = empty();
+    el('emptyVal').textContent = isEmpty ? '1' : '0';
+    el('fullVal').textContent = isFull ? '1' : '0';
+    el('flagEmpty').className = 'flag' + (isEmpty ? ' active-empty' : '');
+    el('flagFull').className = 'flag' + (isFull ? ' active-full' : '');
+    el('writeBtn').disabled = isFull;
+    el('readBtn').disabled = isEmpty;
+
+    if (selected !== null){
+      const v = mem[selected];
+      el('selVal').textContent = 'addr ' + selected + ' = ' + (v === null ? 'empty' : '0x' + hex2(v));
+    } else {
+      el('selVal').textContent = '—';
+    }
+  }
+
+  buildGrid();
+  render();
+  log('reset state — 32 empty slots, rdptr = wrptr = 0');
+
+  el('writeBtn').addEventListener('click', doWrite);
+  el('readBtn').addEventListener('click', doRead);
+  el('bothBtn').addEventListener('click', doBoth);
+  el('resetBtn').addEventListener('click', doReset);
+  dinInput.addEventListener('change', parseDin);
+})();
+</script>
+</body>
+</html>
